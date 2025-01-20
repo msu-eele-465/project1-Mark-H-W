@@ -77,19 +77,58 @@
 
 RESET       mov.w   #__STACK_END,SP         ; Initialize stack pointer
 StopWDT     mov.w   #WDTPW+WDTHOLD,&WDTCTL  ; Stop WDT
+
 SetupP1     bic.b   #BIT0,&P1OUT            ; Clear P1.0 output
             bis.b   #BIT0,&P1DIR            ; P1.0 output
-            bic.w   #LOCKLPM5,&PM5CTL0       ; Unlock I/O pins
 
-Mainloop    xor.b   #BIT0,&P1OUT            ; Toggle P1.0 every 0.1s
-Wait        mov.w   #50000,R15              ; Delay to R15
-L1          dec.w   R15                     ; Decrement R15
-            jnz     L1                      ; Delay over?
+SetupP6     bic.b   #BIT6,&P6OUT            ; Clear P6.6 output
+            bis.b   #BIT6,&P6DIR            ; P6.6 output 
+
+SetupTB0    bis.w   #TBCLR, &TB0CTL         ; Clear timer
+            bis.w   #TBSSEL__ACLK, &TB0CTL  ; Set ACLK as source
+            bis.w   #CNTL_1, &TB0CTL        ; Set 12-bit counter
+            bis.w   #ID__8, &TB0CTL         ; Set first divider to div by 2
+            bis.w   #MC__CONTINUOUS, &TB0CTL ; Continuous counting mode
+            bis.w   #TBIE, &TB0CTL          ; Enable overflow
+            bic.w   #TBIFG, &TB0CTL         ; Clear interrupt
+
+
+            bic.w   #LOCKLPM5,&PM5CTL0      ; Unlock I/O pins
+            NOP
+            bis.w   #GIE, SR                ; Enable maskable interrupts
+            NOP
+
+Mainloop    xor.b   #BIT0,&P1OUT            ; Toggle P1.0 every 1s
+            call    #WaitSub                ; Call wait subroutine
             jmp     Mainloop                ; Again
             NOP
+
+
+WaitSub:     
+            mov.w   #50000,R15              ; Delay to R15 for outer loop
+L2          mov.w   #6,R14                  ; Delay to R14 for inner loop
+L1          dec.w   R14                     ; Decrement R14
+            jnz     L1                      ; Repeat inner Loop
+            dec.w   R15                     ; Decrement R15
+            jnz     L2                      ; Delay over?
+            ret                             ; Again
+            NOP
+
+;------------------------------------------------------------------------------
+;           Interrupt Service Routines
+;------------------------------------------------------------------------------
+ISR_TB0_Overflow:
+            xor.b   #BIT6, &P6OUT           ; Toggle P6.6 every 1s
+            bic.w   #TBIFG, &TB0CTL
+            reti
+
 ;------------------------------------------------------------------------------
 ;           Interrupt Vectors
 ;------------------------------------------------------------------------------
             .sect   RESET_VECTOR            ; MSP430 RESET Vector
             .short  RESET                   ;
+            
+            .sect   ".int42"
+            .short  ISR_TB0_Overflow        ; Timer interrupt vector
+            
             .end
